@@ -37,6 +37,7 @@ class RequestStats(object):
         Returns a StatsEntry which is an aggregate of all stats entries 
         within entries.
         """
+        name = name.split('?', 1)[0]
         total = StatsEntry(self, name, method=None)
         for r in self.entries.itervalues():
             total.extend(r, full_request_history=full_request_history)
@@ -430,9 +431,10 @@ def on_report_to_master(client_id, data):
 def on_slave_report(client_id, data):
     for stats_data in data["stats"]:
         entry = StatsEntry.unserialize(stats_data)
-        request_key = (entry.name, entry.method)
+        name = entry.name.split('?', 1)[0]
+        request_key = (name, entry.method)
         if not request_key in global_stats.entries:
-            global_stats.entries[request_key] = StatsEntry(global_stats, entry.name, entry.method)
+            global_stats.entries[request_key] = StatsEntry(global_stats, name, entry.method)
         global_stats.entries[request_key].extend(entry, full_request_history=True)
         global_stats.last_request_timestamp = max(global_stats.last_request_timestamp, entry.last_request_timestamp)
 
