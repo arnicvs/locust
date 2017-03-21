@@ -9,8 +9,8 @@ class TestTaskRatio(unittest.TestCase):
             @task
             def root_task1(self):
                 pass
-            @task
             
+            @task
             class SubTasks(TaskSet):
                 @task
                 def task1(self):
@@ -50,7 +50,7 @@ class TestTaskRatio(unittest.TestCase):
             weight = 1
             task_set = Tasks
 
-	class MoreLikelyLocust(Locust):
+        class MoreLikelyLocust(Locust):
             weight = 3
             task_set = Tasks
 

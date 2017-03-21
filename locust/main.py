@@ -1,5 +1,5 @@
 import locust
-import runners
+from . import runners
 
 import gevent
 import sys
@@ -10,16 +10,16 @@ import logging
 import socket
 from optparse import OptionParser
 
-import web
-from log import setup_logging, console_logger
-from stats import stats_printer, print_percentile_stats, print_error_report, print_stats
-from inspectlocust import print_task_ratio, get_task_ratio_dict
-from core import Locust, HttpLocust
-from runners import MasterLocustRunner, SlaveLocustRunner, LocalLocustRunner
-import events
+from . import web
+from .log import setup_logging, console_logger
+from .stats import stats_printer, print_percentile_stats, print_error_report, print_stats
+from .inspectlocust import print_task_ratio, get_task_ratio_dict
+from .core import Locust, HttpLocust
+from .runners import MasterLocustRunner, SlaveLocustRunner, LocalLocustRunner
+from . import events
 
 _internals = [Locust, HttpLocust]
-version = locust.version
+version = locust.__version__
 
 def parse_options():
     """
@@ -191,6 +191,14 @@ def parse_options():
        default=False,
        help='Only print the summary stats'
     )
+
+    parser.add_option(
+        '--no-reset-stats',
+        action='store_true',
+        dest='no_reset_stats',
+        default=False,
+        help="Do not reset statistics once hatching has been completed",
+    )
     
     # List locust commands found in loaded locust files/source files
     parser.add_option(
@@ -338,12 +346,17 @@ def main():
     logger = logging.getLogger(__name__)
     
     if options.show_version:
-        print "Locust %s" % (version,)
+        print("Locust %s" % (version,))
         sys.exit(0)
 
     locustfile = find_locustfile(options.locustfile)
+
     if not locustfile:
         logger.error("Could not find any locustfile! Ensure file ends in '.py' and see --help for available options.")
+        sys.exit(1)
+
+    if locustfile == "locust.py":
+        logger.error("The locustfile must not be named `locust.py`. Please rename the file and try again.")
         sys.exit(1)
 
     docstring, locusts = load_locustfile(locustfile)
@@ -368,7 +381,8 @@ def main():
             names = set(arguments) & set(locusts.keys())
             locust_classes = [locusts[n] for n in names]
     else:
-        locust_classes = locusts.values()
+        # list() call is needed to consume the dict_view object in Python 3
+        locust_classes = list(locusts.values())
     
     if options.show_task_ratio:
         console_logger.info("\n Task ratio per locust class")
@@ -409,7 +423,7 @@ def main():
         try:
             runners.locust_runner = SlaveLocustRunner(locust_classes, options)
             main_greenlet = runners.locust_runner.greenlet
-        except socket.error, e:
+        except socket.error as e:
             logger.error("Failed to connect to the Locust master: %s", e)
             sys.exit(-1)
     
