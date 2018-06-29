@@ -1,29 +1,29 @@
-# coding=UTF-8
+# -*- coding: utf-8 -*-
+import logging
+import random
 import socket
 import traceback
 import warnings
-import random
-import logging
-from time import time
 from hashlib import md5
+from time import time
 
 import gevent
+import six
 from gevent import GreenletExit
 from gevent.pool import Group
-import six
+
 from six.moves import xrange
 
 from . import events
+from .rpc import Message, rpc
 from .stats import global_stats
-
-from .rpc import rpc, Message
 
 logger = logging.getLogger(__name__)
 
 # global locust runner singleton
 locust_runner = None
 
-STATE_INIT, STATE_HATCHING, STATE_RUNNING, STATE_STOPPED = ["ready", "hatching", "running", "stopped"]
+STATE_INIT, STATE_HATCHING, STATE_RUNNING, STATE_CLEANUP, STATE_STOPPED = ["ready", "hatching", "running", "cleanup", "stopped"]
 SLAVE_REPORT_INTERVAL = 3.0
 
 
@@ -33,9 +33,9 @@ class LocustRunner(object):
         self.locust_classes = locust_classes
         self.hatch_rate = options.hatch_rate
         self.num_clients = options.num_clients
-        self.num_requests = options.num_requests
         self.host = options.host
         self.locusts = Group()
+        self.greenlet = self.locusts
         self.state = STATE_INIT
         self.hatching_greenlet = None
         self.exceptions = {}
@@ -44,7 +44,7 @@ class LocustRunner(object):
         # register listener that resets stats when hatching is complete
         def on_hatch_complete(user_count):
             self.state = STATE_RUNNING
-            if not self.options.no_reset_stats:
+            if self.options.reset_stats:
                 logger.info("Resetting stats\n")
                 self.stats.reset_all()
         events.hatch_complete += on_hatch_complete
@@ -88,9 +88,6 @@ class LocustRunner(object):
         if spawn_count is None:
             spawn_count = self.num_clients
 
-        if self.num_requests is not None:
-            self.stats.max_requests = self.num_requests
-
         bucket = self.weight_locusts(spawn_count, stop_timeout)
         spawn_count = len(bucket)
         if self.state == STATE_INIT or self.state == STATE_STOPPED:
@@ -114,7 +111,7 @@ class LocustRunner(object):
                 occurence_count[locust.__name__] += 1
                 def start_locust(_):
                     try:
-                        locust().run()
+                        locust().run(runner=self)
                     except GreenletExit:
                         pass
                 new_locust = self.locusts.spawn(start_locust, locust)
@@ -183,6 +180,10 @@ class LocustRunner(object):
         self.locusts.kill(block=True)
         self.state = STATE_STOPPED
         events.locust_stop_hatching.fire()
+    
+    def quit(self):
+        self.stop()
+        self.greenlet.kill(block=True)
 
     def log_exception(self, node_id, msg, formatted_tb):
         key = hash(formatted_tb)
@@ -289,7 +290,6 @@ class MasterLocustRunner(DistributedLocustRunner):
             data = {
                 "hatch_rate":slave_hatch_rate,
                 "num_clients":slave_num_clients,
-                "num_requests": self.num_requests,
                 "host":self.host,
                 "stop_timeout":None
             }
@@ -390,7 +390,6 @@ class SlaveLocustRunner(DistributedLocustRunner):
                 job = msg.data
                 self.hatch_rate = job["hatch_rate"]
                 #self.num_clients = job["num_clients"]
-                self.num_requests = job["num_requests"]
                 self.host = job["host"]
                 self.hatching_greenlet = gevent.spawn(lambda: self.start_hatching(locust_count=job["num_clients"], hatch_rate=job["hatch_rate"]))
             elif msg.type == "stop":
